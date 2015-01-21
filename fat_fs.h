@@ -3,6 +3,7 @@
 
 #define SECTOR_SIZE 512
 #define CLUST_SIZE	0x2000
+#define DIR_LIST_LEN	10
 
 #define OFFSET_JUMP			0x00
 #define OFFSET_OEM_NAME		0x03
@@ -35,10 +36,14 @@
 #define OFFSET_BIOS_ID		0x40
 #define OFFSET_UNUSE		0x41
 #define OFFSET_MARK			0x42
-#define OFFSET_DISK_ID		0x43
-#define OFFSET_DISK_NAME	0x47
+#define OFFSET_VOLUME_ID	0x43
+#define OFFSET_VOLUME_NAME	0x47
 #define OFFSET_FATFS_TYPE	0x52
 #define OFFSET_EOF			0x1FE
+#define LEN_VOLUME_NAME		11
+
+#define OFFSET_FSINFO_FREE	0x1E8
+#define OFFSET_FSINFO_NEXT	0x1EC
 
 #define DIR_OFFSET_NAME		0x00
 #define DIR_OFFSET_EX_NAME	0x08
@@ -77,10 +82,18 @@
 
 #define FILE_VAL_ALL		0xFFFFFFFF
 
-#define NAME_MAX_LEN	64
-#define FAT_SIZE		512
-#define DIR_FILE_NUM	1024
+#define RESULT_OK			0x00
+#define RESULT_WRONG_NAME	0xFC
+#define RESULT_NOT_FOUND	0xFD
+#define RESULT_WRONG_PATH	0xFE
 
+#define NAME_MAX_LEN	255
+#define FAT_SIZE		512
+
+#define TRUE	1
+#define FALSE	0
+
+typedef unsigned __int64 UINT64;
 typedef unsigned int UINT32;
 typedef unsigned short UINT16;
 typedef unsigned char UINT8;
@@ -104,23 +117,32 @@ struct time_type
 };
 
 struct volume_info {
+	UINT8 name[LEN_VOLUME_NAME];
+
 	UINT32 fat_offset;
 	UINT32 root_offset;
+	UINT32 root_clust;
+	void* root;
 
 	UINT16 sector_size;
 	UINT8 clust_size;
 
 	UINT32 clust_offset;
-
+	
 	UINT8 fat[FAT_SIZE];
 	UINT32 fat_part_num;
+	UINT64 fat_size;
+
+	UINT32 free_clust; 
+	UINT32 next_clust;
 };
 
 struct file_info
 {
 	volume_info*	fs;
-	char		name[NAME_MAX_LEN];
+	UINT8		name[NAME_MAX_LEN];
 	UINT32		name_len;
+	UINT8		name_chk;
 	UINT8		attri;
 	time_type	create_time;
 	time_type	resent_time;
@@ -128,30 +150,63 @@ struct file_info
 	UINT32	size;
 	UINT32	first_clust;
 	UINT32	offset;
+
+	file_info* dir;
 };
 
 //Basic disk IO function
 bool read_disk(UINT8* buffer, int sector_size = 512, int offset = 0, int count = 1);
+bool write_disk(UINT8* buffer, int sector_size, int offset, int count);
+
+//Help func
+UINT32 mem_set(void* buffer, UINT8 val, UINT32 length); 
+UINT32 mem_cpy(void* target, const void* source, UINT32 length);
+UINT32 str_len(const UINT8* str);
+UINT32 str_cmp(UINT8* str1, const UINT8* str2);
+UINT32 str_find_c(const UINT8* str, UINT8 c, UINT32 offset);
 
 //Get volume basic information
 void init_volume(volume_info* volume, file_info* root);
+void update_volume_info(volume_info& volume);
 
 //Get dir and its file list
-UINT32 get_file_list(file_info& dir, file_info* file_list);
+file_info f_open(file_info& now_dir, const UINT8* file_name);
+UINT8 f_open(file_info* file, file_info& now_dir, const UINT8* file_name);
+
+UINT8 get_file_dir(file_info* target, file_info& start, const UINT8* path);
+UINT8 get_file_info(file_info* file, file_info& dir, const UINT8* file_name);
+
+UINT32 get_file_list(file_info& dir, file_info* file_list, UINT32 start = 0, UINT32 max = 0xFFFFFFFF);
 UINT32 get_file_num(file_info& dir);
 void get_file_info_base(file_info* info, UINT8* buffer);
-void file_get_time(time_type* time_info, UINT16 time_data);
-void file_get_date(time_type* time_info, UINT16 date_data);
+void file_get_time(time_type* time_info, UINT16 time_date);
+void file_get_date(time_type* time_info, UINT16 date_date);
 
-//Get data of a file
-UINT32 read_file(file_info &file, UINT8* buffer, UINT32 size = FILE_VAL_ALL, UINT32 offset = 0);
+file_info create_new_file(file_info& dir, const UINT8* file_name);
+
+UINT8 set_file_info_base(file_info&, UINT8*buffer);
+//UINT8 file_get_short_name(UINT8* short_name, const UINT8* name);
+UINT8 file_is_long_name(const UINT8* name);
+UINT16 file_set_time(time_type& time);
+UINT16 file_set_date(time_type& date);
+
+UINT8 file_chk_name(const UINT8* name);
+
+//Read data of a file
+UINT32 f_read(file_info &file, UINT8* buffer, UINT32 size = FILE_VAL_ALL, UINT32 offset = 0);
 void read_clust(volume_info &volume, UINT8* buffer, UINT32 clust_num);
+
+//Write data of a file
+UINT32 f_write(file_info &file, UINT8* buffer, UINT32 size, UINT32 offset = 0);
+void write_clust(volume_info &volume, UINT8* buffer, UINT32 clust_num);
 
 //Get data of next clust 
 UINT32 get_next_clust(UINT32 now_clust, volume_info& fs);
 UINT32 get_last_clust_num(UINT32 now_clust, volume_info& fs);
+UINT32 get_next_empty_clust(volume_info& fs);
 
 //Win32 number convet
 UINT32 get_num(UINT8* buffer, num_type type);
+void set_num(UINT32 val, UINT8* buffer, num_type type);
 
 #endif
